@@ -44,6 +44,8 @@ task Clean {
     EnsureDirectory $output_directory
 
     Clean-Item $output_directory -ea SilentlyContinue
+
+    exec { msbuild /nologo /verbosity:q $sln_path /p:"Configuration=$target_config;TargetFrameworkVersion=$framework_version" /t:clean  }
 }
 
 task VersionAssembly {
