@@ -76,13 +76,46 @@ task RestoreNuget {
 }
 
 task UnFody {
-    $target = "<Project ToolsVersion='4.0' xmlns='http://schemas.microsoft.com/developer/msbuild/2003'></Project>"
+    Write-Output "
+    <Weavers>
+  <Costura IncludeDebugSymbols='false'>
+    <IncludeAssemblies>
+        Lucene.Net
+    </IncludeAssemblies>
+  </Costura>
+</Weavers>
+    ".Trim() > "$src_directory\ravendb\Raven.Database\FodyWeavers.xml"
 
-    Write-Output $target > "$src_directory\ravendb\Imports\Fody\Fody.Targets"
+    Write-Output "
+    <Weavers>
+  <Costura IncludeDebugSymbols='false'>
+    <IncludeAssemblies>
+    </IncludeAssemblies>
+  </Costura>
+</Weavers>
+    ".Trim() > "$src_directory\ravendb\Raven.Client.Lightweight\FodyWeavers.xml"
+
+    $fody_targets_path = "$src_directory\ravendb\Imports\Fody\Fody.targets"
+
+    $fody_targets = [xml](Get-Content $fody_targets_path)
+
+    $msbuild_ns = @{msbuild='http://schemas.microsoft.com/developer/msbuild/2003'}
+
+    Select-Xml -Xml $fody_targets -Namespace $msbuild_ns -Xpath '//msbuild:FodyPath' | % {
+        $_.Node.InnerText = "$src_directory\ravendb\SharedLibs\Fody"
+    }
+
+    Select-Xml -Xml $fody_targets -Namespace $msbuild_ns -XPath '//msbuild:Target[@Name="CleanReferenceCopyLocalPaths"]' | % {
+        $_.Node.InnerText = ''
+    }
+
+    $fody_targets.Save($fody_targets_path)
+
+
 }
 
 task CompileClr -depends RestoreNuget, Init, UnFody {
-    exec { msbuild /nologo /verbosity:q $sln_path /p:"Configuration=$target_config;TargetFrameworkVersion=$framework_version;OutDir=$output_directory"  }
+    exec { msbuild /nologo /verbosity:q $sln_path /p:"Configuration=$target_config;TargetFrameworkVersion=$framework_version"  }
 }
 
 task TestClr -depends CompileClr {
