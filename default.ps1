@@ -75,7 +75,13 @@ task RestoreNuget {
     }
 }
 
-task CompileClr -depends RestoreNuget, Init {
+task UnFody {
+    $target = "<Project ToolsVersion='4.0' xmlns='http://schemas.microsoft.com/developer/msbuild/2003'></Project>"
+
+    Write-Output $target > "$src_directory\ravendb\Imports\Fody\Fody.Targets"
+}
+
+task CompileClr -depends RestoreNuget, Init, UnFody {
     exec { msbuild /nologo /verbosity:q $sln_path /p:"Configuration=$target_config;TargetFrameworkVersion=$framework_version;OutDir=$output_directory"  }
 }
 
