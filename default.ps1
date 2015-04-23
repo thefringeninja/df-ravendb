@@ -132,7 +132,7 @@ Task ILMerge -depends Compile {
     $merge = @(
     )
 
-    ILMerge -target "RavenDB.Client" -folder $output_directory -merge $merge
+    ILMerge -target "RavenDB.Client.Lightweight" -folder $output_directory -merge $merge
 
     $merge = @(
     )
