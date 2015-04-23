@@ -1,0 +1,3 @@
+[submodule "src/ravendb"]
+	path = src/ravendb
+	url = git@github.com:ravendb/ravendb.git
