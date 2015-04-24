@@ -5,7 +5,6 @@ properties {
     $base_directory     = Resolve-Path .
     $src_directory      = "$base_directory\src"
     $output_directory   = "$base_directory\build"
-    $merged_directory   = "$output_directory\merged"
     $package_directory  = "$src_directory\ravendb\packages"
     $nuget_directory    = "$src_directory\ravendb\.nuget"
 
@@ -117,29 +116,62 @@ task UnFody {
 }
 
 task CompileClr -depends RestoreNuget, Init, UnFody {
-    exec { msbuild /nologo /verbosity:q $sln_path /p:"Configuration=$target_config;TargetFrameworkVersion=$framework_version"  }
+    exec { msbuild /nologo /verbosity:q $sln_path /p:"Configuration=$target_config;TargetFrameworkVersion=$framework_version;OutDir=$output_directory"  }
 }
 
 task TestClr -depends CompileClr {
 }
 
 Task ILMerge -depends Compile {
-    EnsureDirectory $merged_directory
-
     $merge = @(
+        "ICSharpCode.*",
+        "Mono.*"
     )
 
-    ILMerge -target "RavenDB.Abstractions" -folder $output_directory -merge $merge
+    ILMerge -target "Raven.Abstractions" -merge $merge
+    
+    Copy-Item "$output_directory\Raven.Abstractions\Raven.Abstractions.*" $output_directory
 
     $merge = @(
+        "Spatial4n.Core.NTS",
+        "NetTopologySuite",
+        "PowerCollections",
+        "GeoAPI"
     )
 
-    ILMerge -target "RavenDB.Client.Lightweight" -folder $output_directory -merge $merge
+    ILMerge -target "Raven.Abstractions" -merge $merge -internalize $false
+    
+    Copy-Item "$output_directory\Raven.Abstractions\Raven.Abstractions.*" $output_directory
 
     $merge = @(
+        "System.Reactive.Core",
+        "System.Reactive.Interfaces"
     )
 
-    ILMerge -target "RavenDB.Database" -folder $output_directory -merge $merge
+    ILMerge -target "Raven.Client.Lightweight" -merge $merge
+
+    Copy-Item "$output_directory\Raven.Client.Lightweight\Raven.Client.Lightweight.*" $output_directory
+
+    $merge = @(
+        "System.Reactive.*",
+        "System.Net.Http.Formatting",
+        "System.Web.Http",
+        "System.Web.Http.Owin",
+        "Esent.Interop",
+        "HtmlAgilityPack",
+        "ICSharpCode.*",
+        "Jint",
+        "metrics",
+        "Microsoft.Owin",
+        "Microsoft.Owin.*",
+        "Mono.*",
+        "NLog",
+        "Owin",
+        "Newtonsoft.Json",
+        "Voron"
+    )
+
+    ILMerge -target "Raven.Database" -merge $merge
 }
 
 task Package -depends ILMerge {
@@ -184,8 +216,8 @@ function Get-Version {
 function ILMerge {
     param(
         [string] $target,
-        [string] $folder,
-        [string[]] $merge
+        [string[]] $merge,
+        [bool] $internalize = $true
     )
 
     "<configuration>
@@ -195,13 +227,26 @@ function ILMerge {
   </startup>
 </configuration>" | Out-File -FilePath "$ilmerge_path.config"
 
-    $primary = "$folder\$target.dll"
+    if ($internalize -eq $true) {
+        $internalize_flag = "-internalize"
+    }
+    else {
+        $internalize_flag = $null
+    }
 
-    $merge = $merge |%  { "$folder\$_.dll" }
+    $primary = "$output_directory\$target.dll"
+
+    $merge = $merge |%  { "$output_directory\$_.dll" }
+
+    $merged_directory = "$output_directory\$target"
 
     $out = "$merged_directory\$target.dll"
+
+    EnsureDirectory $merged_directory
+
+    Clean-Item $merged_directory
     
-    & $ilmerge_path /targetplatform:v4 /wildcards /internalize /allowDup /target:library /log /out:$out $primary $merge
+    & $ilmerge_path -keyfile:"$src_directory\ravendb\Raven.Database\RavenDB.snk" -lib:$output_directory -targetplatform:v4 -wildcards $internalize_flag -allowDup -parallel -target:library -log -out:$out $primary $merge
 }
 
 function FindTool {
