@@ -1,5 +1,6 @@
 properties {
     $solution           = "df-ravendb.sln"
+    $test_solution      = "df-ravendb-smoketests.sln"
     $target_config      = "Release"
 
     $base_directory     = Resolve-Path .
@@ -9,11 +10,12 @@ properties {
     $nuget_directory    = "$src_directory\ravendb\.nuget"
 
     $sln_path           = "$src_directory\$solution"
+    $test_sln_path      = "$src_directory\$test_solution"
     $assemblyInfo_path  = "$src_directory\GlobalAssemblyInfo.cs"
     $nuget_path         = "$nuget_directory\nuget.exe"
     $nugetConfig_path   = "$nuget_directory\nuget.config"
-    
     $ilmerge_path       = FindTool("ILRepack.*\tools\ILRepack.exe")
+    $testrunner_path    = FindTool("xunit.runner.console.*\tools\xunit.console.exe")
 
     $code_coverage      = $true
     $framework_version  = "v4.5"
@@ -34,10 +36,6 @@ TaskTearDown {
 task default -depends Package
 
 task Init -depends Clean, VersionAssembly
-
-task Compile -depends CompileClr
-
-task Test -depends Compile, TestClr
 
 task Clean {
     EnsureDirectory $output_directory
@@ -69,7 +67,6 @@ task VersionAssembly {
 
 
 task RestoreNuget {
-    return;
     Get-SolutionPackages |% {
         "Restoring " + $_
         &$nuget_path install $_ -o $package_directory -configfile $nugetConfig_path
@@ -82,6 +79,7 @@ task UnFody {
   <Costura IncludeDebugSymbols='false'>
     <IncludeAssemblies>
         Lucene.Net
+        Lucene.Net.Contrib.Spatial.NTS
     </IncludeAssemblies>
   </Costura>
 </Weavers>
@@ -111,15 +109,15 @@ task UnFody {
     }
 
     $fody_targets.Save($fody_targets_path)
-
-
 }
 
-task CompileClr -depends RestoreNuget, Init, UnFody {
+task Compile -depends RestoreNuget, Init, UnFody {
     exec { msbuild /nologo /verbosity:q $sln_path /p:"Configuration=$target_config;TargetFrameworkVersion=$framework_version;OutDir=$output_directory"  }
 }
 
-task TestClr -depends CompileClr {
+task Test {
+    exec { msbuild /nologo /verbosity:q $test_sln_path /p:"Configuration=$target_config;TargetFrameworkVersion=$framework_version;OutDir=$output_directory" /t:Rebuild  }
+    RunTest -test_project "Raven.SmokeTests"
 }
 
 Task ILMerge -depends Compile {
@@ -139,7 +137,7 @@ Task ILMerge -depends Compile {
         "GeoAPI"
     )
 
-    ILMerge -target "Raven.Abstractions" -merge $merge -internalize $false
+    ILMerge -target "Raven.Abstractions" -merge $merge
     
     Copy-Item "$output_directory\Raven.Abstractions\Raven.Abstractions.*" $output_directory
 
@@ -168,7 +166,12 @@ Task ILMerge -depends Compile {
         "NLog",
         "Owin",
         "Newtonsoft.Json",
-        "Voron"
+        "Voron",
+        "Lucene.Net.Contrib.Spatial.NTS",
+        "Spatial4n.Core.NTS",
+        "NetTopologySuite",
+        "PowerCollections",
+        "GeoAPI"
     )
 
     ILMerge -target "Raven.Database" -merge $merge
@@ -248,6 +251,15 @@ function ILMerge {
     
     & $ilmerge_path -keyfile:"$src_directory\ravendb\Raven.Database\RavenDB.snk" -lib:$output_directory -targetplatform:v4 -wildcards $internalize_flag -allowDup -parallel -target:library -log -out:$out $primary $merge
 }
+
+function RunTest {
+    param(
+        [string] $test_project
+    )
+
+    & $testrunner_path "$output_directory\$test_project.dll" -teamcity
+}
+
 
 function FindTool {
     param(
