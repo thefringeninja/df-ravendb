@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using FluentAssertions;
 using Raven.Abstractions.Extensions;
 using Raven.Client;
+using Raven.Client.Document;
 using Raven.Client.Linq;
 using Raven.Client.Embedded;
 using Raven.Client.Indexes;
@@ -18,47 +19,24 @@ namespace Raven.SmokeTests
         {
             _documentStore = new EmbeddableDocumentStore
             {
-                RunInMemory = true,
+                Conventions = {DefaultQueryingConsistency = ConsistencyOptions.AlwaysWaitForNonStaleResultsAsOfLastWrite},
+                   RunInMemory = true,
                 Configuration =
                 {
                     Settings =
                     {
                         {"Raven/AssembliesDirectory", "~/assemblies-" + Guid.NewGuid().ToString("n")}
-                    }
+                    },
+                     
                 }
             }.Initialize();
 
             Raven.Abstractions.Logging.LogManager.CurrentLogManager = new Raven.Abstractions.Logging.LogProviders.NLogLogManager();
         }
 
-        [Fact]
-        public async Task can_save_and_load()
+        private async Task Seed()
         {
-            using (var session = _documentStore.OpenAsyncSession())
-            {
-                await session.StoreAsync(new Order
-                {
-                    Id = "Order/1",
-                    Freight = 100
-                });
-
-                await session.SaveChangesAsync();
-            }
-
-            using (var session = _documentStore.OpenAsyncSession())
-            {
-                var document = await session.LoadAsync<Order>("Order/1");
-
-                document.Freight.Should().Be(100);
-            }
-        }
-
-        [Fact]
-        public async Task simple_transformer()
-        {
-            await new Orders_Company().ExecuteAsync(_documentStore);
-
-            var orderCount = 1024;
+            var orderCount = 128;
             var customerCount = 32;
 
             var companies = Enumerable.Range(1, customerCount)
@@ -70,8 +48,8 @@ namespace Raven.SmokeTests
             var orders = Enumerable.Range(1, orderCount)
                 .Select(id => new Order
                 {
-                    Company = "Company/" + ((id%customerCount) + 1),
-                    Freight = id*2,
+                    Company = "Company/" + ((id % customerCount) + 1),
+                    Freight = id * 2,
                     Id = "Order/" + id
                 });
 
@@ -85,14 +63,77 @@ namespace Raven.SmokeTests
                 await operation.DisposeAsync();
             }
 
+        }
+
+        [Fact]
+        public async Task can_save_and_load()
+        {
+            await Seed();
+
+            using (var session = _documentStore.OpenAsyncSession())
+            {
+                var document = await session.LoadAsync<Order>("Order/1");
+
+                document.Freight.Should().Be(2);
+            }
+        }
+
+        [Fact]
+        public async Task dynamic_query()
+        {
+            await Seed();
+
             using (var session = _documentStore.OpenAsyncSession())
             {
                 var results = await (session.Query<Order>()
                     .Where(x => x.Freight > 100) // remember to add `Raven.Client.Linq` namespace
                     .ToListAsync());
 
-                results.Count.Should().BeGreaterThan(1);
+                results.Count.Should().Be(78);
             }
+        }
+
+        [Fact]
+        public async Task map()
+        {
+            await new Orders_ByFreight().ExecuteAsync(_documentStore);
+
+            await Seed();
+
+            using (var session = _documentStore.OpenAsyncSession())
+            {
+                var results = await (session.Query<Order, Orders_ByFreight>()
+                    .Where(x => x.Freight > 100) // remember to add `Raven.Client.Linq` namespace
+                    .ToListAsync());
+
+                results.Count.Should().Be(78);
+            }
+        }
+
+        [Fact]
+        public async Task map_reduce()
+        {
+            await new Orders_ByCompany().ExecuteAsync(_documentStore);
+
+            await Seed();
+
+            using (var session = _documentStore.OpenAsyncSession())
+            {
+                var results = await (session.Query<Orders_ByCompany.Result, Orders_ByCompany>()
+                    .Where(x => x.Company == "Company/1") // remember to add `Raven.Client.Linq` namespace
+                    .ToListAsync());
+
+                results.Count.Should().BeGreaterThan(0);
+            }
+
+        }
+
+        [Fact]
+        public async Task simple_transformer()
+        {
+            await new Orders_Company().ExecuteAsync(_documentStore);
+
+            await Seed();
 
             using (var session = _documentStore.OpenAsyncSession())
             {
@@ -101,8 +142,9 @@ namespace Raven.SmokeTests
                     .TransformWith<Orders_Company, string>()
                     .ToListAsync());
 
-                results.Count.Should().BeGreaterThan(1);
+                results.Count.Should().Be(78);
             }
+
         }
 
         [Fact]
@@ -150,12 +192,12 @@ namespace Raven.SmokeTests
             _documentStore.Dispose();
         }
 
-        class Company
+        internal class Company
         {
             public string Id { get; set; }
         }
 
-        class Order
+        internal class Order
         {
             public string Id { get; set; }
 
@@ -164,7 +206,41 @@ namespace Raven.SmokeTests
             public int Freight { get; set; }
         }
 
-        class Orders_Company : AbstractTransformerCreationTask<Order>
+        internal class Orders_ByFreight : AbstractIndexCreationTask<Order>
+        {
+            public Orders_ByFreight()
+            {
+                Map = docs => from doc in docs
+                    select new {doc.Freight};
+            }
+        }
+
+        internal class Orders_ByCompany : AbstractIndexCreationTask<Order, Orders_ByCompany.Result>
+        {
+            internal class Result
+            {
+                public int Count { get; set; }
+
+                public string Company { get; set; }
+            }
+
+            public Orders_ByCompany()
+            {
+                Map = docs => from doc in docs
+                    select new {Count = 1, doc.Company};
+
+                Reduce = results => from result in results
+                    group result by result.Company
+                    into g
+                    select new
+                    {
+                        Company = g.Key,
+                        Count = g.Sum(x => x.Count)
+                    };
+            }
+        }
+
+        internal class Orders_Company : AbstractTransformerCreationTask<Order>
         {
             public Orders_Company()
             {
