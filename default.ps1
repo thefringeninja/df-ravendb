@@ -206,7 +206,10 @@ function EnsureDirectory {
 }
 
 function Get-SolutionPackages {
-    gci $src_directory -Recurse "packages.config" -ea SilentlyContinue | foreach-object { $_.FullName }
+    $repositories = [xml](Get-Content "$src_directory\packages\repositories.config")
+    Select-Xml -Xml $repositories -Xpath "/repositories/repository" | % {
+        $_.Node.Attributes["path"].Value
+    }
 }
 
 function Get-Version {

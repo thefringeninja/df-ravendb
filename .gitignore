@@ -42,8 +42,6 @@ x64/
 *.vssscc
 .builds
 build/
-packages/
-src/coverage
 
 # Visual C++ cache files
 ipch/
@@ -87,9 +85,9 @@ publish
 *.Publish.xml
 
 # NuGet Packages Directory
-# But include respository.config
 src/packages/**/
-!src/.nuget/*
+# But include respositories.config
+!src/packages/repositories.config
 
 # Windows Azure Build Output
 csx
