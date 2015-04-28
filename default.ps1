@@ -33,7 +33,7 @@ TaskTearDown {
     TeamCity-CloseBlock $taskName
 }
 
-task default -depends Package
+task default -depends ILMerge, Test
 
 task Init -depends Clean, VersionAssembly
 
@@ -41,6 +41,8 @@ task Clean {
     EnsureDirectory $output_directory
 
     Clean-Item $output_directory -ea SilentlyContinue
+
+    & git submodule foreach git reset --hard
 
     exec { msbuild /nologo /verbosity:q $sln_path /p:"Configuration=$target_config;TargetFrameworkVersion=$framework_version" /t:clean  }
 }
@@ -73,8 +75,12 @@ task RestoreNuget {
     }
 }
 
-task UnFody {
-    Write-Output "
+task MungeDependencies -depends MungePatches, MungeFody {
+
+}
+
+task MungeFody -depends Clean {
+        Write-Output "
     <Weavers>
   <Costura IncludeDebugSymbols='false'>
     <IncludeAssemblies>
@@ -111,7 +117,22 @@ task UnFody {
     $fody_targets.Save($fody_targets_path)
 }
 
-task Compile -depends RestoreNuget, Init, UnFody {
+task MungePatches -depends Clean {
+    Push-Location
+
+    cd "$src_directory\ravendb"
+
+    & git remote add thefringeninja git@github.com:thefringeninja/ravendb.git
+
+    & git fetch thefringeninja
+
+    & git cherry-pick 1d77d99d9d --no-commit
+
+    Pop-Location
+
+}
+
+task Compile -depends Clean, RestoreNuget, MungeDependencies {
     exec { msbuild /nologo /verbosity:q $sln_path /p:"Configuration=$target_config;TargetFrameworkVersion=$framework_version;OutDir=$output_directory"  }
 }
 
@@ -124,17 +145,6 @@ Task ILMerge -depends Compile {
     $merge = @(
         "ICSharpCode.*",
         "Mono.*"
-    )
-
-    ILMerge -target "Raven.Abstractions" -merge $merge
-    
-    Copy-Item "$output_directory\Raven.Abstractions\Raven.Abstractions.*" $output_directory
-
-    $merge = @(
-        "Spatial4n.Core.NTS",
-        "NetTopologySuite",
-        "PowerCollections",
-        "GeoAPI"
     )
 
     ILMerge -target "Raven.Abstractions" -merge $merge
