@@ -53,16 +53,14 @@ namespace Raven.SmokeTests
                     Id = "Order/" + id
                 });
 
-
-            using (var operation = _documentStore.BulkInsert())
+            using (var session = _documentStore.OpenAsyncSession())
             {
-                companies.OfType<object>()
+                await Task.WhenAll(companies.OfType<object>()
                     .Union(orders)
-                    .ForEach(x => operation.Store(x));
+                    .Select(d => session.StoreAsync(d)));
 
-                await operation.DisposeAsync();
+                await session.SaveChangesAsync();
             }
-
         }
 
         [Fact]
