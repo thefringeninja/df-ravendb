@@ -163,7 +163,6 @@ Task ILMerge -depends Compile {
         "Microsoft.Owin",
         "Microsoft.Owin.*",
         "Mono.*",
-        "NLog",
         "Owin",
         "Newtonsoft.Json",
         "Voron",
