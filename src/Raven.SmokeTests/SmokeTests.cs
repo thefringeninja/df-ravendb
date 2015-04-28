@@ -120,7 +120,7 @@ namespace Raven.SmokeTests
             using (var session = _documentStore.OpenAsyncSession())
             {
                 var results = await (session.Query<Orders_ByCompany.Result, Orders_ByCompany>()
-                    .Where(x => x.Company == "Company/1") // remember to add `Raven.Client.Linq` namespace
+                    .Where(x => x.Count > 0) // remember to add `Raven.Client.Linq` namespace
                     .ToListAsync());
 
                 results.Count.Should().BeGreaterThan(0);
